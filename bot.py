@@ -4,6 +4,13 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup  # pyrig
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters  # pyright: ignore[reportMissingImports]
 from telegram.constants import ParseMode  # pyright: ignore[reportMissingImports]
 from search_service import search_products, format_search_results, parse_query
+from handlers.menu import handle_menu_callback as _menu_cb_h, show_main_menu as _show_menu_h, show_main_menu_edit as _show_menu_edit_h  # pyright: ignore[reportMissingImports]
+from handlers.operator import operator as _operator_h  # pyright: ignore[reportMissingImports]
+from handlers.auth import start as _start_h, handle_phone_number as _handle_phone_h  # pyright: ignore[reportMissingImports]
+from handlers.text import handle_text_message as text_handler  # pyright: ignore[reportMissingImports]
+from handlers.auth import start as _start_h, handle_phone_number as _handle_phone_h, handle_verification_callback as _verify_cb_h
+from handlers.menu import handle_menu_callback as _menu_cb_h, show_main_menu as _show_menu_h, show_main_menu_edit as _show_menu_edit_h
+from handlers.operator import operator as _operator_h
 
 # Импорт конфигурации
 try:
@@ -19,31 +26,8 @@ WAITING_PHONE, WAITING_VERIFICATION, WAITING_SEARCH = range(3)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик команды /start - приветствие и запрос номера телефона."""
-    user_id = update.effective_user.id
-    
-    # Проверяем, авторизован ли пользователь
-    if context.user_data.get('verified', False):
-        await show_main_menu(update, context)
-        return
-    
-    # Приветственное сообщение с правилами
-    welcome_message = (
-        "👋 Добро пожаловать в бота!\n\n"
-        "📋 Правила формирования корректного запроса:\n"
-        "• Используйте команды для навигации\n"
-        "• Следуйте инструкциям бота\n"
-        "• Для связи с менеджером используйте команду /operator\n\n"
-        "📱 Для продолжения работы необходимо пройти верификацию.\n"
-        "Пожалуйста, введите ваш номер телефона в формате:\n"
-        "+7XXXXXXXXXX\n\n"
-        "Например: +79991234567"
-    )
-    
-    await update.message.reply_text(welcome_message)
-    
-    # Устанавливаем состояние ожидания номера телефона
-    context.user_data['state'] = WAITING_PHONE
+    # Делегируем в handlers.auth
+    await _start_h(update, context)
 
 
 async def handle_phone_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -93,44 +77,8 @@ async def handle_phone_number(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def handle_verification_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик нажатий на кнопки верификации."""
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = update.effective_user.id
-    callback_data = query.data
-    
-    if callback_data == "verified_yes":
-        # Пользователь авторизован
-        context.user_data['verified'] = True
-        context.user_data['state'] = None
-        
-        success_message = (
-            "✅ Верификация успешно завершена!\n\n"
-            "🎉 Добро пожаловать! Вы получили доступ к поиску товаров.\n\n"
-            "Используйте доступные команды для работы с ботом."
-        )
-        
-        await query.edit_message_text(success_message)
-        await show_main_menu(update, context)
-        
-    elif callback_data == "verified_no":
-        # Пользователь не авторизован
-        context.user_data['verified'] = False
-        context.user_data['state'] = None
-        
-        not_verified_message = (
-            "❌ Пользователь не найден в системе.\n\n"
-            "📝 Перед использованием услуг бота, вам необходимо зарегистрироваться в системе.\n"
-            "Для этого свяжитесь с нашим менеджером:\n"
-            f"{MANAGER_CONTACTS}"
-            "После регистрации вы сможете использовать все возможности бота."
-        )
-        
-        await query.edit_message_text(not_verified_message)
-        
-        # Завершаем сессию - пользователь не может продолжить работу
-        context.user_data.clear()
+    # Делегируем в handlers.auth
+    await _verify_cb_h(update, context)
 
 
 async def get_back_to_menu_button():
@@ -140,165 +88,26 @@ async def get_back_to_menu_button():
 
 
 async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик нажатий на кнопки главного меню."""
-    query = update.callback_query
-    await query.answer()
-    
-    callback_data = query.data
-    
-    if callback_data == "menu_back":
-        # Возврат в главное меню
-        await show_main_menu_edit(query, context)
-        return
-    
-    if callback_data == "menu_operator":
-        # Оператор - отправляем контакты
-        back_button = await get_back_to_menu_button()
-        await query.edit_message_text(MANAGER_CONTACTS, reply_markup=back_button)
-        
-    elif callback_data == "menu_rules":
-        # Правила запроса товаров (краткая и понятная версия)
-        rules_message = (
-            "📋 ПРАВИЛА ПОИСКА ТОВАРОВ\n\n"
-            "• <b>Синхронные ремни</b>: сначала длина, затем профиль.\n"
-            "  Примеры: 8008M, 177814M, 240L, 1700H, 630T5, 1010T10\n\n"
-            "• <b>С шириной</b>: без пробелов через '=' (ширина в мм).\n"
-            "  Примеры: 8008M=30, 177814M=55, 240L=30\n\n"
-            "• <b>Клиновые ремни</b> (штучные): сначала профиль, затем длина (дюйм./расч.).\n"
-            "  Примеры: B85, B2000, SPB2000, A79, A800, 8V2000\n\n"
-        )
-        back_button = await get_back_to_menu_button()
-        await query.edit_message_text(rules_message, reply_markup=back_button, parse_mode=ParseMode.HTML)
-        
-    elif callback_data == "menu_request":
-        # Запрос ввода строки поиска
-        context.user_data['state'] = WAITING_SEARCH
-        await query.edit_message_text(
-            "🛒 Поиск товаров\n\nВведите запрос по правилам (например: 8008M, 177814M=55, SPA2000, B85):"
-        )
-        
-    elif callback_data == "menu_commands":
-        # Перечень всех команд
-        commands_message = (
-            "📝 Перечень команд бота:\n\n"
-            "/start - Начать работу с ботом\n"
-            "/operator - Получить контакты оператора\n\n"
-            "Доступные кнопки в главном меню:\n"
-            "• 📞 Оператор - контакты для связи с оператором\n"
-            "• 📋 Правила запросов - правила формирования запроса\n"
-            "• 🛒 Поиск товаров - поиск товаров (в разработке)\n"
-            "• 📝 Перечень команд - список всех доступных команд\n"
-            "• 👋 Завершить - завершить работу с ботом"
-        )
-        back_button = await get_back_to_menu_button()
-        await query.edit_message_text(commands_message, reply_markup=back_button)
-        
-    elif callback_data == "menu_finish":
-        # Завершить работу
-        finish_message = (
-            "👋 Спасибо за использование бота!\n\n"
-            "До свидания! Если вам понадобится помощь, "
-            "вы можете запустить бота снова через команду /start"
-        )
-        await query.edit_message_text(finish_message)
-        # Очищаем данные пользователя
-        context.user_data.clear()
+    # Делегируем в handlers.menu
+    await _menu_cb_h(update, context)
 
 
 async def operator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /operator - вывод контактов менеджера."""
-    await update.message.reply_text(MANAGER_CONTACTS)
+    await _operator_h(update, context)
 
 
 async def show_main_menu_edit(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Редактирует сообщение, показывая главное меню."""
-    menu_message = (
-        "🎯 Главное меню\n\n"
-        "✅ Вы успешно авторизованы!\n\n"
-        "Выберите действие:"
-    )
-    
-    keyboard = [
-        [
-            InlineKeyboardButton("📞 Оператор", callback_data="menu_operator"),
-            InlineKeyboardButton("📋 Правила запросов", callback_data="menu_rules")
-        ],
-        [
-            InlineKeyboardButton("🛒 Поиск товаров", callback_data="menu_request")
-        ],
-        [
-            InlineKeyboardButton("📝 Перечень команд", callback_data="menu_commands"),
-            InlineKeyboardButton("👋 Завершить", callback_data="menu_finish")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(menu_message, reply_markup=reply_markup)
+    await _show_menu_edit_h(query, context)
 
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показывает главное меню после успешной верификации."""
-    menu_message = (
-        "🎯 Главное меню\n\n"
-        "✅ Вы успешно авторизованы!\n\n"
-        "Выберите действие:"
-    )
-    
-    keyboard = [
-        [
-            InlineKeyboardButton("📞 Оператор", callback_data="menu_operator"),
-            InlineKeyboardButton("📋 Правила запросов", callback_data="menu_rules")
-        ],
-        [
-            InlineKeyboardButton("🛒 Поиск товаров", callback_data="menu_request")
-        ],
-        [
-            InlineKeyboardButton("📝 Перечень команд", callback_data="menu_commands"),
-            InlineKeyboardButton("👋 Завершить", callback_data="menu_finish")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    if update.callback_query:
-        await update.callback_query.message.reply_text(menu_message, reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(menu_message, reply_markup=reply_markup)
+    await _show_menu_h(update, context)
 
 
-async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик текстовых сообщений."""
-    user_id = update.effective_user.id
-    state = context.user_data.get('state')
-    
-    # Если пользователь авторизован
-    if context.user_data.get('verified', False):
-        if state == WAITING_SEARCH:
-            query_text = update.message.text.strip()
-            parsed = parse_query(query_text)
-            # Простая валидация
-            if parsed.kind == "unknown":
-                await update.message.reply_text(
-                    "Неверный формат запроса. Примеры: 8008M, 177814M=55, SPA2000, B85"
-                )
-                return
-            rows = search_products(query_text)
-            result_text = format_search_results(rows)
-            await update.message.reply_text(result_text)
-            # Сброс состояния и возврат меню
-            context.user_data['state'] = None
-            await show_main_menu(update, context)
-            return
-        # По умолчанию показываем меню
-        await show_main_menu(update, context)
-        return
-    
-    # Если ожидаем номер телефона
-    if state == WAITING_PHONE:
-        await handle_phone_number(update, context)
-    else:
-        # Если пользователь не авторизован, предлагаем начать с /start
-        await update.message.reply_text(
-            "Для начала работы используйте команду /start"
-        )
+# Локальный обработчик текста удалён — используем handlers.text.text_handler
 
 
 def main() -> None:
@@ -307,17 +116,17 @@ def main() -> None:
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Регистрируем обработчики команд
-    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("start", _start_h))
     application.add_handler(CommandHandler("operator", operator))
     
     # Обработчик кнопок верификации
     application.add_handler(CallbackQueryHandler(handle_verification_callback, pattern="^verified_"))
     
     # Обработчик кнопок главного меню
-    application.add_handler(CallbackQueryHandler(handle_menu_callback, pattern="^menu_"))
+    application.add_handler(CallbackQueryHandler(_menu_cb_h, pattern="^menu_"))
     
     # Обработчик текстовых сообщений (должен быть последним)
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     
     # Запускаем бота
     print("Бот запущен...")
