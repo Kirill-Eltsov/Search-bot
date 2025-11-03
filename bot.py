@@ -2,6 +2,8 @@ import os
 import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup  # pyright: ignore[reportMissingImports]
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters  # pyright: ignore[reportMissingImports]
+from telegram.constants import ParseMode  # pyright: ignore[reportMissingImports]
+from search_service import search_products, format_search_results, parse_query
 
 # Импорт конфигурации
 try:
@@ -13,7 +15,7 @@ except ImportError:
     )
 
 # Состояния для ConversationHandler
-WAITING_PHONE, WAITING_VERIFICATION = range(2)
+WAITING_PHONE, WAITING_VERIFICATION, WAITING_SEARCH = range(3)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -155,23 +157,25 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text(MANAGER_CONTACTS, reply_markup=back_button)
         
     elif callback_data == "menu_rules":
-        # Правила запроса товаров (заглушка)
+        # Правила запроса товаров (краткая и понятная версия)
         rules_message = (
-            "📋 Правила запроса товаров\n\n"
-            "Здесь будут правила формирования корректного запроса к боту.\n\n"
-            "⚠️ Раздел находится в разработке."
+            "📋 ПРАВИЛА ПОИСКА ТОВАРОВ\n\n"
+            "• <b>Синхронные ремни</b>: сначала длина, затем профиль.\n"
+            "  Примеры: 8008M, 177814M, 240L, 1700H, 630T5, 1010T10\n\n"
+            "• <b>С шириной</b>: без пробелов через '=' (ширина в мм).\n"
+            "  Примеры: 8008M=30, 177814M=55, 240L=30\n\n"
+            "• <b>Клиновые ремни</b> (штучные): сначала профиль, затем длина (дюйм./расч.).\n"
+            "  Примеры: B85, B2000, SPB2000, A79, A800, 8V2000\n\n"
         )
         back_button = await get_back_to_menu_button()
-        await query.edit_message_text(rules_message, reply_markup=back_button)
+        await query.edit_message_text(rules_message, reply_markup=back_button, parse_mode=ParseMode.HTML)
         
     elif callback_data == "menu_request":
-        # Поиск товаров (заглушка, кнопка не работает)
-        request_message = (
-            "🛒 Поиск товаров\n\n"
-            "⚠️ Данная функция временно недоступна.\n"
-            "Раздел находится в разработке."
+        # Запрос ввода строки поиска
+        context.user_data['state'] = WAITING_SEARCH
+        await query.edit_message_text(
+            "🛒 Поиск товаров\n\nВведите запрос по правилам (например: 8008M, 177814M=55, SPA2000, B85):"
         )
-        await query.answer(request_message, show_alert=True)
         
     elif callback_data == "menu_commands":
         # Перечень всех команд
@@ -265,9 +269,25 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     state = context.user_data.get('state')
     
-    # Если пользователь авторизован, обрабатываем как обычное сообщение
+    # Если пользователь авторизован
     if context.user_data.get('verified', False):
-        # Показываем главное меню для авторизованных пользователей
+        if state == WAITING_SEARCH:
+            query_text = update.message.text.strip()
+            parsed = parse_query(query_text)
+            # Простая валидация
+            if parsed.kind == "unknown":
+                await update.message.reply_text(
+                    "Неверный формат запроса. Примеры: 8008M, 177814M=55, SPA2000, B85"
+                )
+                return
+            rows = search_products(query_text)
+            result_text = format_search_results(rows)
+            await update.message.reply_text(result_text)
+            # Сброс состояния и возврат меню
+            context.user_data['state'] = None
+            await show_main_menu(update, context)
+            return
+        # По умолчанию показываем меню
         await show_main_menu(update, context)
         return
     
