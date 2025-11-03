@@ -4,7 +4,7 @@ from telegram.constants import ParseMode  # pyright: ignore
 
 
 async def get_back_to_menu_button():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад в меню", callback_data="menu_back")]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="menu_back")]])
 
 
 async def show_main_menu_edit(query, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -73,7 +73,11 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if data == "menu_request":
         context.user_data['state'] = 2  # WAITING_SEARCH
-        await query.edit_message_text("🛒 Поиск товаров\n\nВведите запрос по правилам (например: 8008M, 177814M=55, SPA2000, B85):")
+        back = await get_back_to_menu_button()
+        await query.edit_message_text(
+            "🛒 Поиск товаров\n\nВведите запрос по правилам (например: 8008M, 177814M=55, SPA2000, B85):",
+            reply_markup=back,
+        )
         return
 
     if data == "menu_commands":
@@ -102,8 +106,10 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if data == "search_continue":
         # Повторный запрос поиска
         context.user_data['state'] = 2  # WAITING_SEARCH
+        back = await get_back_to_menu_button()
         await query.edit_message_text(
-            "🛒 Поиск товаров\n\nВведите запрос по правилам (например: 8008M, 177814M=55, SPA2000, B85):"
+            "🛒 Поиск товаров\n\nВведите запрос по правилам (например: 8008M, 177814M=55, SPA2000, B85):",
+            reply_markup=back,
         )
 
 

@@ -10,3 +10,4 @@ Telegram: @manager_username
 
 """
 
+OPENAI_API_KEY = "YOUR_OpenAI_KEY_HERE" 
